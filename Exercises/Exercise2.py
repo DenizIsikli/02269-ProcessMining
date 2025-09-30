@@ -31,44 +31,56 @@ def read_from_file(filename):
     tree = ET.parse(filename)
     root = tree.getroot()
     d = defaultdict(list)
-    case_counter = 0
-    for trace in root.findall(".//{*}trace"):
+    
+    ns = {'xes': 'http://www.xes-standard.org/'}
+    if root.tag.endswith('log'):
+        ns_prefix = '{http://www.xes-standard.org/}'
+    else:
+        ns_prefix = ''
+    
+    for trace in root.findall(f'{ns_prefix}trace'):
         case_id = None
-        for child in trace.findall(".//{*}string"):
-            if child.get("key") == "concept:name":
-                case_id = child.get("value")
+        for child in trace:
+            if child.tag.endswith('string') and child.get('key') == 'concept:name':
+                case_id = child.get('value')
                 break
+        
         if not case_id:
-            case_id = f"case_{case_counter}"
-            case_counter += 1
+            continue
+        
         events = []
-        for event in trace.findall(".//{*}event"):
+        for event in trace.findall(f'{ns_prefix}event'):
             e = {}
             for attr in event:
-                key = attr.get("key")
-                val = attr.get("value")
+                key = attr.get('key')
+                val = attr.get('value')
+                
                 if val is None:
                     continue
-                if attr.tag.endswith("date"):
-                    if val.endswith("Z"):
-                        val = val[:-1] + "+00:00"
-                    val = datetime.fromisoformat(val)
-                elif attr.tag.endswith("int"):
+                
+                if attr.tag.endswith('date'):
+                    try:
+                        if 'T' in val:
+                            if val.endswith('Z'):
+                                val = val[:-1] + '+00:00'
+                            dt = datetime.fromisoformat(val)
+                            val = dt.replace(tzinfo=None)
+                        else:
+                            val = datetime.strptime(val, '%Y-%m-%d %H:%M:%S')
+                    except:
+                        val = datetime(1970, 1, 1, 1, 0)
+                elif attr.tag.endswith('int'):
                     val = int(val)
-                elif attr.tag.endswith("float"):
+                elif attr.tag.endswith('float'):
                     val = float(val)
+                
                 e[key] = val
-            if "time:timestamp" not in e:
-                e["time:timestamp"] = datetime(1970,1,1,1,0)
-            if "org:resource" not in e:
-                e["org:resource"] = ""
-            if "cost" not in e:
-                e["cost"] = 0
-            if "concept:name" not in e:
-                e["concept:name"] = "unknown"
+            
             events.append(e)
-        events.sort(key=lambda x: x.get("time:timestamp", datetime.min))
+        
+        events.sort(key=lambda x: x.get('time:timestamp', datetime.min))
         d[case_id].extend(events)
+    
     return d
 
 def dependency_graph_file(log):
